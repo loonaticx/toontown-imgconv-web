@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Convert Texture Formats</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .dropzone {
+        border: 2px dashed #ccc;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 20px;
+        cursor: pointer;
+        transition: border-color 0.3s;
+      }
+      .dropzone.dragover {
+        border-color: #0066cc;
+      }
+      #output-image {
+        display: none;
+        max-width: 100%;
+        margin-top: 20px;
+      }
+      .preview-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        margin-top: 20px;
+      }
+      .preview-container div {
+        flex: 1;
+        text-align: center;
+      }
+      .preview-container img {
+        max-width: 100%;
+        max-height: 300px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Toontown Texture Converter</h1>
+
+    <!-- Section 1: Combine RGB and Alpha -->
+    <h2>Alpha Combiner</h2>
+    <div id="rgb-dropzone" class="dropzone">Drag and drop input image here or click to upload</div>
+    <input type="file" id="rgb-input" name="rgb" accept="image/*" style="display: none;" />
+
+    <div id="alpha-dropzone" class="dropzone">Drag and drop input alpha image here or click to upload</div>
+    <input type="file" id="alpha-input" name="alpha" accept="image/*,.rgb" style="display: none;" />
+
+    <button id="submit-btn" disabled>Generate PNG</button>
+
+    <div id="result">
+      <p>
+        <strong>Output:</strong>
+      </p>
+      <img id="output-image" src="" alt="Result will appear here" />
+    </div>
+
+    <hr />
+
+    <!-- Section 2: Process RGBA Image -->
+    <h2>PNG Splitter</h2>
+    <div id="rgba-dropzone" class="dropzone">Drag and drop PNG image here or click to upload</div>
+    <input type="file" id="rgba-input" name="rgba" accept=".png" style="display: none;" />
+
+    <div id="rgba-result" style="display: none;">
+      <div class="preview-container">
+        <div>
+          <p>
+            <strong>JPG Result:</strong>
+          </p>
+          <img id="rgb-preview" src="" alt="Result JPG Image" />
+        </div>
+        <div>
+          <p>
+            <strong>Alpha Result:</strong>
+          </p>
+          <img id="alpha-preview" src="" alt="Result _a.rgb Image" />
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function setupDropzone(dropzoneId, inputId, callback) {
+        const dropzone = document.getElementById(dropzoneId)
+        const input = document.getElementById(inputId)
+      
+        dropzone.addEventListener('click', () => input.click())
+      
+        dropzone.addEventListener('dragover', (event) => {
+          event.preventDefault()
+          dropzone.classList.add('dragover')
+        })
+      
+        dropzone.addEventListener('dragleave', () => {
+          dropzone.classList.remove('dragover')
+        })
+      
+        dropzone.addEventListener('drop', (event) => {
+          event.preventDefault()
+          dropzone.classList.remove('dragover')
+      
+          const files = event.dataTransfer.files
+          if (files.length > 0) {
+            input.files = files
+            dropzone.textContent = `Selected: ${files[0].name}`
+            callback(files[0])
+          }
+        })
+      
+        input.addEventListener('change', () => {
+          if (input.files.length > 0) {
+            dropzone.textContent = `Selected: ${input.files[0].name}`
+            callback(input.files[0])
+          }
+        })
+      }
+      
+      function attachDownloadListeners(imageElement, data, filename) {
+        const downloadFile = () => {
+          const blob = new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))])
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = filename
+          a.click()
+        }
+      
+        // Left-click to download
+        imageElement.addEventListener('click', downloadFile)
+      
+        // Right-click to download
+        imageElement.addEventListener('contextmenu', (event) => {
+          event.preventDefault() // Prevent default context menu
+          downloadFile()
+        })
+      }
+      
+      let rgbFile = null
+      let alphaFile = null
+      
+      setupDropzone('rgb-dropzone', 'rgb-input', (file) => {
+        rgbFile = file
+        enableSubmitButton()
+      })
+      
+      setupDropzone('alpha-dropzone', 'alpha-input', (file) => {
+        alphaFile = file
+        enableSubmitButton()
+      })
+      
+      function enableSubmitButton() {
+        const submitBtn = document.getElementById('submit-btn')
+        submitBtn.disabled = !(rgbFile && alphaFile)
+      }
+      
+      document.getElementById('submit-btn').addEventListener('click', async () => {
+        const formData = new FormData()
+        formData.append('rgb', rgbFile)
+        formData.append('alpha', alphaFile)
+      
+        try {
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          })
+      
+          if (!response.ok) {
+            const errorData = await response.json()
+            alert(`Error: ${errorData.error}`)
+            return
+          }
+      
+          const data = await response.json()
+      
+          let outputImage = document.getElementById('output-image')
+          const newOutputImage = outputImage.cloneNode()
+          outputImage.replaceWith(newOutputImage)
+          outputImage = newOutputImage
+      
+          outputImage.src = `data:image/png;base64,${data.png_data}`
+          outputImage.style.display = 'block'
+      
+          attachDownloadListeners(outputImage, data.png_data, data.png_filename)
+        } catch (error) {
+          console.error('Unexpected Error:', error)
+          alert('An unexpected error occurred. Please try again.')
+        }
+      })
+      
+      let rgbaFile = null
+      
+      setupDropzone('rgba-dropzone', 'rgba-input', async (file) => {
+        rgbaFile = file
+      
+        const formData = new FormData()
+        formData.append('rgba', rgbaFile)
+      
+        try {
+          const response = await fetch('/process_rgba', {
+            method: 'POST',
+            body: formData
+          })
+      
+          if (!response.ok) {
+            const errorData = await response.json()
+            alert(`Error: ${errorData.error}`)
+            return
+          }
+      
+          const data = await response.json()
+      
+          let rgbPreview = document.getElementById('rgb-preview')
+          const newRgbPreview = rgbPreview.cloneNode()
+          rgbPreview.replaceWith(newRgbPreview)
+          rgbPreview = newRgbPreview
+      
+          rgbPreview.src = `data:image/jpeg;base64,${data.rgb_jpg}`
+          rgbPreview.style.display = 'block'
+          attachDownloadListeners(rgbPreview, data.rgb_jpg, data.rgb_jpg_filename)
+      
+          let alphaPreview = document.getElementById('alpha-preview')
+          const newAlphaPreview = alphaPreview.cloneNode()
+          alphaPreview.replaceWith(newAlphaPreview)
+          alphaPreview = newAlphaPreview
+      
+          alphaPreview.src = `data:image/png;base64,${data.alpha_preview_png}`
+          alphaPreview.style.display = 'block'
+          attachDownloadListeners(alphaPreview, data.alpha_sgi, data.alpha_sgi_filename)
+      
+          document.getElementById('rgba-result').style.display = 'block'
+        } catch (error) {
+          console.error('Unexpected Error:', error)
+          alert('An unexpected error occurred. Please try again.')
+        }
+      })
+    </script>
+  </body>
+</html>
